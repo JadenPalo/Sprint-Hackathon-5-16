@@ -43,11 +43,6 @@ export default function App() {
         isOnline={store.isOnline}
         onToggleOnline={store.setOnlineStatus}
         onRoleChange={store.setUserRole}
-        firebaseEnabled={false}
-        authLoading={false}
-        isAuthenticated={false}
-        onSignIn={async () => {}}
-        onSignOut={async () => {}}
       >
         <Suspense fallback={<div className="card-surface p-5 text-sm text-slate-600">Loading page...</div>}>
           {resolvedPage === "dashboard" ? <DashboardPage /> : null}

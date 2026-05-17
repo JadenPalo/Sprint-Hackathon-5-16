@@ -259,7 +259,7 @@ export function ZoneZoomEditor({ store, zone, readOnly, onClose }: ZoneZoomEdito
         <div className="card-surface p-4">
           <div
             ref={canvasRef}
-            className="relative h-[70vh] rounded-2xl border border-slate-200 bg-[linear-gradient(0deg,rgba(148,163,184,0.15)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.15)_1px,transparent_1px)] bg-[size:24px_24px]"
+            className="relative h-[70vh] touch-none rounded-2xl border border-slate-200 bg-[linear-gradient(0deg,rgba(148,163,184,0.15)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.15)_1px,transparent_1px)] bg-[size:24px_24px]"
             onPointerMove={handleCanvasPointerMove}
             onPointerUp={stopSubzoneDrag}
             onPointerLeave={stopSubzoneDrag}
@@ -273,7 +273,7 @@ export function ZoneZoomEditor({ store, zone, readOnly, onClose }: ZoneZoomEdito
             {zoneSubzones.map((subzone) => (
               <div
                 key={subzone.id}
-                className={`absolute rounded-xl border-2 p-2 ${
+                className={`absolute touch-none rounded-xl border-2 p-2 ${
                   selectedSubzoneId === subzone.id
                     ? "border-cafe-700 bg-cafe-100/80"
                     : "border-cafe-300 bg-cafe-100/50"

@@ -18,6 +18,7 @@ import {
   updateItemQuantity,
 } from "../lib/inventory";
 import { buildPeakHourData, buildSeasonalInsight, buildTopItems } from "../lib/analytics";
+import { pluralize } from "../lib/format";
 import { buildActivityInsightsReport } from "../lib/activityInsights";
 import { buildDailyOpsReport } from "../lib/dailyOps";
 import { parseInventoryCommand } from "../lib/parser";
@@ -290,7 +291,7 @@ export function useAppState() {
     }
 
     const unsubscribe = onSnapshot(doc(firebaseServices.db, "configs", "app-state"), (snapshot) => {
-      if (!snapshot.exists()) {
+      if (!snapshot.exists() || snapshot.metadata.hasPendingWrites) {
         return;
       }
 
@@ -1491,6 +1492,11 @@ export function useAppState() {
         appendAssistantMessage(geminiResponse);
         return;
       }
+
+      appendAssistantMessage(
+        "I’m having trouble reaching Gemini right now. Please try again in a moment, or use a direct command like “restock oat milk by 5.”"
+      );
+      return;
     }
 
     if (parsed.type === "list-low") {
@@ -1573,6 +1579,14 @@ export function useAppState() {
           ? `Restocked ${item.name} by ${parsed.quantity} ${item.unit}.`
           : `Logged ${parsed.quantity} ${item.unit} used from ${item.name}.`
       );
+
+      if (parsed.inferredQuantity) {
+        const actionLabel = parsed.direction === "add" ? "Added" : "Logged usage for";
+        appendAssistantMessage(
+          `${actionLabel} 1 ${pluralize(1, item.unit)} of ${item.name}. If you want a different amount, include a number (for example: “${parsed.direction === "add" ? "add" : "use"} 5 ${item.name}”).`
+        );
+        return;
+      }
 
       appendAssistantMessage(buildAdjustmentResponse(updatedItem, parsed.direction, parsed.quantity));
       return;

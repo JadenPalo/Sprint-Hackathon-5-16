@@ -46,14 +46,14 @@ export function DashboardPage() {
         description="Fixed, deterministic layout for all users. No customization controls."
       />
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <MetricCard label="Total items" value={store.metrics.totalItems} helper="Tracked inventory items" />
         <MetricCard label="Low stock" value={store.metrics.lowCount} tone="low" helper="Needs attention" />
         <MetricCard label="Critical" value={store.metrics.criticalCount} tone="critical" helper="Urgent restock" />
         <MetricCard label="Healthy" value={store.metrics.healthyCount} tone="healthy" helper="Stable supply" />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="card-surface p-4">
           <p className="text-sm font-semibold text-slate-800">AI Reorder Recommendations</p>
           <div className="mt-3 space-y-3">
@@ -86,7 +86,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="card-surface p-4">
           <p className="text-sm font-semibold text-slate-800">Sales Overview</p>
           <ul className="mt-3 grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
@@ -110,7 +110,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="card-surface p-4">
           <p className="text-sm font-semibold text-slate-800">Store Map Snapshot</p>
           <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">

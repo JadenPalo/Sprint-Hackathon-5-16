@@ -486,7 +486,7 @@ export function MapPage() {
             onPointerMove={handleCanvasPointerMove}
             onPointerUp={stopDragging}
             onPointerLeave={stopDragging}
-            className="relative h-[460px] rounded-2xl border border-slate-200 bg-[linear-gradient(0deg,rgba(148,163,184,0.15)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.15)_1px,transparent_1px)] bg-[size:24px_24px]"
+            className="relative h-[460px] touch-none rounded-2xl border border-slate-200 bg-[linear-gradient(0deg,rgba(148,163,184,0.15)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.15)_1px,transparent_1px)] bg-[size:24px_24px]"
           >
             {localZones.map((zone) => {
               const zoneBlocks = blocksByZone[zone.id] ?? [];
@@ -507,7 +507,7 @@ export function MapPage() {
                   onPointerDown={isAdmin ? (event) => startDragging(event, zone, "move") : undefined}
                   onDragOver={isAdmin ? (event) => event.preventDefault() : undefined}
                   onDrop={isAdmin ? (event) => handleZoneDrop(event, zone.id) : undefined}
-                  className={`absolute rounded-xl border-2 p-2 shadow-soft ${
+                  className={`absolute touch-none rounded-xl border-2 p-2 shadow-soft ${
                     isAdmin ? "cursor-move" : "cursor-default"
                   }`}
                   style={{

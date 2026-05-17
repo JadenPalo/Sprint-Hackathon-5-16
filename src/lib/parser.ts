@@ -5,7 +5,13 @@ export type ParsedIntent =
   | { type: "list-low" }
   | { type: "reorder-suggestions" }
   | { type: "daily-summary" }
-  | { type: "adjust"; direction: "add" | "subtract"; quantity: number; itemName: string }
+  | {
+      type: "adjust";
+      direction: "add" | "subtract";
+      quantity: number;
+      itemName: string;
+      inferredQuantity?: boolean;
+    }
   | { type: "find_item_location"; itemName: string }
   | { type: "list_items_in_zone"; zoneName: string }
   | { type: "move_item_to_zone"; itemName: string; zoneName: string; quantity?: number }
@@ -78,6 +84,20 @@ export function parseInventoryCommand(
     return itemName ? { type: "adjust", direction: "subtract", quantity, itemName } : { type: "unknown" };
   }
 
+  if (addPatterns.test(text)) {
+    const itemName = extractItemNameForAdjustWithoutQuantity(text, items);
+    return itemName
+      ? { type: "adjust", direction: "add", quantity: 1, itemName, inferredQuantity: true }
+      : { type: "unknown" };
+  }
+
+  if (subtractPatterns.test(text)) {
+    const itemName = extractItemNameForAdjustWithoutQuantity(text, items);
+    return itemName
+      ? { type: "adjust", direction: "subtract", quantity: 1, itemName, inferredQuantity: true }
+      : { type: "unknown" };
+  }
+
   return { type: "unknown" };
 }
 
@@ -86,6 +106,17 @@ function extractItemName(text: string, quantity: number, items: InventoryItem[])
     .replace(/\b(add|restock|received|increase|brought in|use|used|remove|removed|decrease|sold|spent|we)\b/gi, " ")
     .replace(new RegExp(`\\b${quantity}\\b`, "g"), " ")
     .replace(/\b(of|the|a|an)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const directMatch = findBestInventoryMatch(items, stripped);
+  return directMatch?.name ?? null;
+}
+
+function extractItemNameForAdjustWithoutQuantity(text: string, items: InventoryItem[]): string | null {
+  const stripped = text
+    .replace(/\b(add|restock|received|increase|brought in|use|used|remove|removed|decrease|sold|spent|we)\b/gi, " ")
+    .replace(/\b(of|the|a|an|some)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
