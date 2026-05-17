@@ -2,12 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionTitle } from "../components/common/SectionTitle";
 import { ZoneZoomEditor } from "../components/map/ZoneZoomEditor";
 import { ZoneChatPanel } from "../components/chat/ZoneChatPanel";
-import type { AppStore } from "../hooks/useAppState";
+import { useStore } from "../context/StoreContext";
 import type { Block, Section, Zone } from "../types/inventory";
 
-interface MapPageProps {
-  store: AppStore;
-}
 
 interface DragState {
   zoneId: string;
@@ -28,7 +25,8 @@ function getBlockEmoji(block: Block) {
   return block.metadata?.emoji ?? "📦";
 }
 
-export function MapPage({ store }: MapPageProps) {
+export function MapPage() {
+  const store = useStore();
   const isAdmin = store.userRole === "admin";
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
@@ -613,6 +611,22 @@ export function MapPage({ store }: MapPageProps) {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="card-surface p-5">
+        <h3 className="text-base font-semibold text-slate-900">Recent Map Activity</h3>
+        <ul className="mt-3 space-y-2 text-sm text-slate-700">
+          {store.mapActivity.length === 0 ? (
+            <li className="rounded-xl bg-slate-50 px-3 py-2 text-slate-500">No map updates yet.</li>
+          ) : (
+            store.mapActivity.slice(0, 10).map((entry) => (
+              <li key={entry.id} className="rounded-xl bg-slate-50 px-3 py-2">
+                <p>{entry.message}</p>
+                <p className="mt-1 text-xs text-slate-500">{new Date(entry.timestamp).toLocaleString()}</p>
+              </li>
+            ))
+          )}
+        </ul>
       </div>
 
       {zoomedZone ? (

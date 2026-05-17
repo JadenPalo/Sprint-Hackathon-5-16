@@ -6,17 +6,17 @@ interface SyncBadgeProps {
 }
 
 const statusStyles: Record<SyncStatus, string> = {
-  online: "bg-emerald-50 text-emerald-700",
-  offline: "bg-slate-100 text-slate-700",
-  "pending-sync": "bg-amber-50 text-amber-700",
-  synced: "bg-cyan-50 text-cyan-700",
+  "online-synced": "bg-emerald-50 text-emerald-700",
+  "online-syncing": "bg-cyan-50 text-cyan-700",
+  "offline-queued": "bg-amber-50 text-amber-700",
+  "sync-error": "bg-rose-50 text-rose-700",
 };
 
 const labels: Record<SyncStatus, string> = {
-  online: "Online",
-  offline: "Offline",
-  "pending-sync": "Pending Sync",
-  synced: "Synced",
+  "online-synced": "Online + Synced",
+  "online-syncing": "Online + Syncing",
+  "offline-queued": "Offline + Queued",
+  "sync-error": "Sync Error",
 };
 
 export function SyncBadge({ status, pending }: SyncBadgeProps) {
@@ -31,17 +31,17 @@ export function SyncBadge({ status, pending }: SyncBadgeProps) {
         </div>
         <div className="text-right">
           <p className="text-2xl font-semibold text-slate-900">{pending.length}</p>
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Pending</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Queued</p>
         </div>
       </div>
       <p className="mt-4 text-sm text-slate-500">
-        {status === "offline"
-          ? "Changes stay available locally until the device reconnects."
-          : status === "pending-sync"
-            ? "Offline edits are queued and ready to sync."
-            : status === "synced"
-              ? "Latest local changes were synced successfully."
-              : "Inventory is actively connected and up to date."}
+        {status === "offline-queued"
+          ? `Changes are queued locally (${pending.length} pending) and will replay automatically when online.`
+          : status === "online-syncing"
+            ? `Replaying queued actions (${pending.length} remaining).`
+            : status === "sync-error"
+              ? "Some queued actions failed. Retry will continue automatically with backoff."
+              : "All queued changes are synced."}
       </p>
     </div>
   );

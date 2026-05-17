@@ -1,0 +1,9 @@
+{
+  "name": "LocalOps AI",
+  "short_name": "LocalOps",
+  "description": "Offline-first inventory dashboard and assistant for local businesses.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4a3728"
+}

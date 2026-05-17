@@ -2,14 +2,11 @@ import { useMemo, useState } from "react";
 import { SectionTitle } from "../components/common/SectionTitle";
 import { InventoryList } from "../components/inventory/InventoryList";
 import { ItemFormModal } from "../components/inventory/ItemFormModal";
-import type { AppStore } from "../hooks/useAppState";
+import { useStore } from "../context/StoreContext";
 import type { InventoryDraft, InventoryItem } from "../types/inventory";
 
-interface InventoryPageProps {
-  store: AppStore;
-}
-
-export function InventoryPage({ store }: InventoryPageProps) {
+export function InventoryPage() {
+  const store = useStore();
   const [query, setQuery] = useState("");
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [modalOpen, setModalOpen] = useState(false);

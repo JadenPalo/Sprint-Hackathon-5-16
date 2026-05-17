@@ -3,10 +3,12 @@ export type UserRole = "staff" | "admin";
 export type ResponsibilityStatus = "active" | "pending" | "completed";
 export type DashboardWidgetId =
   | "inventory-summary"
-  | "zone-map-preview"
-  | "employee-stats"
-  | "active-responsibilities"
-  | "alerts-notifications";
+  | "low-stock-alerts"
+  | "sales-overview"
+  | "peak-hours"
+  | "chatbot"
+  | "store-map"
+  | "sync-status";
 
 export interface InventoryItem {
   id: string;
@@ -18,6 +20,11 @@ export interface InventoryItem {
   criticalThreshold: number;
   updatedAt: string;
   zoneId?: string | null;
+  costPrice?: number;
+  salePrice?: number;
+  lastReorderDate?: string;
+  usageRate?: number;
+  safetyStock?: number;
 }
 
 export interface InventoryDraft {
@@ -134,4 +141,18 @@ export interface ActivityEntry {
   message: string;
   timestamp: string;
   pendingSync: boolean;
+}
+
+export interface MapActivityEntry {
+  id: string;
+  message: string;
+  timestamp: string;
+}
+
+export interface UsageEvent {
+  id: string;
+  itemId: string;
+  delta: number;
+  timestamp: string;
+  actorId: string | null;
 }

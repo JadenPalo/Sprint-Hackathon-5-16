@@ -378,8 +378,9 @@ VITE_STREAM_API_KEY=your_stream_api_key_here
 VITE_STREAM_USER_ID=localops_demo_user
 VITE_STREAM_USER_TOKEN=your_stream_user_token_here
 VITE_ENABLE_STREAM_CHAT=false
-VITE_AI_PROVIDER=openai
-VITE_OPENAI_API_KEY=your_optional_openai_key_here
+VITE_AI_PROVIDER=gemini
+VITE_GEMINI_API_KEY=your_gemini_api_key_here
+VITE_GEMINI_MODEL=gemini-1.5-flash
 ```
 
 ## 15. Styling Direction

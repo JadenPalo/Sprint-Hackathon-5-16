@@ -1,11 +1,19 @@
 import { SYNC_DELAY_MS } from "./constants";
-import type { PendingSyncEntry } from "../types/sync";
+import type { PendingSyncEntry, SyncQueueEntryType } from "../types/sync";
 
-export function createPendingSyncEntry(label: string): PendingSyncEntry {
+export function createPendingSyncEntry(
+  label: string,
+  type: SyncQueueEntryType = "inventory_update",
+  payload: Record<string, unknown> = {}
+): PendingSyncEntry {
   return {
     id: crypto.randomUUID(),
-    label,
+    type,
+    payload,
     timestamp: new Date().toISOString(),
+    retryCount: 0,
+    status: "pending",
+    label,
   };
 }
 

@@ -1,282 +1,140 @@
-import { useMemo, useState, type DragEvent } from "react";
-import type { AppStore } from "../hooks/useAppState";
-import type { DashboardWidgetId } from "../types/inventory";
+import { useMemo } from "react";
+import { useStore } from "../context/StoreContext";
 import { MetricCard } from "../components/dashboard/MetricCard";
-import { LowStockList } from "../components/dashboard/LowStockList";
 import { RecentUpdatesCard } from "../components/dashboard/RecentUpdatesCard";
 import { SyncBadge } from "../components/dashboard/SyncBadge";
 import { SectionTitle } from "../components/common/SectionTitle";
-import { EmployeePanel } from "../components/employees/EmployeePanel";
 import { StreamActivityFeed } from "../components/dashboard/StreamActivityFeed";
+import { buildPeakHourData, buildWeeklySalesData } from "../lib/analytics";
 import { getStreamConfig, hasUsableStreamConfig } from "../lib/stream";
 
-interface DashboardPageProps {
-  store: AppStore;
-}
-
-const WIDGET_LABELS: Record<DashboardWidgetId, string> = {
-  "inventory-summary": "Inventory summary",
-  "zone-map-preview": "Zone map preview",
-  "employee-stats": "Employee stats",
-  "active-responsibilities": "Active responsibilities",
-  "alerts-notifications": "Alerts / notifications",
-};
-
-const GRID_COLUMNS = 12;
-const ROW_HEIGHT = 84;
-
-export function DashboardPage({ store }: DashboardPageProps) {
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [payrollFilter, setPayrollFilter] = useState<"all" | "on" | "off">("all");
-
-  const layout = useMemo(
-    () => store.getDashboardLayout(store.userRole),
-    [store, store.dashboardLayouts, store.userRole]
-  );
-
-  const widgets = useMemo(
-    () => [...layout.widgets].sort((left, right) => left.order - right.order),
-    [layout.widgets]
-  );
-
-  const visibleWidgets = widgets.filter((widget) => widget.visible);
-  const maxRows = Math.max(8, ...visibleWidgets.map((widget) => widget.y + widget.h));
-  const containerHeight = maxRows * ROW_HEIGHT;
+export function DashboardPage() {
+  const store = useStore();
   const streamReady = hasUsableStreamConfig(getStreamConfig());
+  const salesData = useMemo(() => buildWeeklySalesData(store.activity), [store.activity]);
+  const peakHourData = useMemo(() => buildPeakHourData(), []);
+  const topRecommendations = useMemo(
+    () => store.procurementRecommendations.slice(0, 4),
+    [store.procurementRecommendations]
+  );
 
-  function onDropWidget(event: DragEvent<HTMLDivElement>) {
-    if (!isEditMode) {
-      return;
+  const visibleActivity = useMemo(() => {
+    if (store.userRole === "admin") {
+      return store.activity.slice(0, 6);
     }
 
-    event.preventDefault();
-    const widgetId = event.dataTransfer.getData("text/widget-id") as DashboardWidgetId;
-    if (!widgetId) {
-      return;
+    const activeEmployeeName =
+      store.employees.find((employee) => employee.id === store.currentEmployeeId)?.name.toLowerCase() ?? "";
+
+    if (!activeEmployeeName) {
+      return store.activity.filter((entry) => entry.pendingSync).slice(0, 6);
     }
 
-    const sourceWidget = widgets.find((widget) => widget.widgetId === widgetId);
-    if (!sourceWidget) {
-      return;
-    }
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = Math.max(
-      0,
-      Math.min(
-        GRID_COLUMNS - sourceWidget.w,
-        Math.floor(((event.clientX - rect.left) / rect.width) * GRID_COLUMNS)
+    return store.activity
+      .filter(
+        (entry) =>
+          entry.pendingSync || entry.message.toLowerCase().includes(activeEmployeeName)
       )
-    );
-    const y = Math.max(0, Math.floor((event.clientY - rect.top) / ROW_HEIGHT));
-
-    store.updateDashboardWidgetPosition(store.userRole, widgetId, {
-      x,
-      y,
-      w: sourceWidget.w,
-      h: sourceWidget.h,
-    });
-  }
-
-  function renderWidget(widgetId: DashboardWidgetId) {
-    switch (widgetId) {
-      case "inventory-summary":
-        return (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-2">
-            <MetricCard label="Total items" value={store.metrics.totalItems} helper="Tracked cafe supplies" />
-            <MetricCard
-              label="Low stock"
-              value={store.metrics.lowCount}
-              tone="low"
-              helper="Needs attention soon"
-            />
-            <MetricCard
-              label="Critical"
-              value={store.metrics.criticalCount}
-              tone="critical"
-              helper="Restock first"
-            />
-            <MetricCard
-              label="Healthy"
-              value={store.metrics.healthyCount}
-              tone="healthy"
-              helper="Comfortable inventory"
-            />
-          </div>
-        );
-      case "zone-map-preview":
-        return (
-          <div className="card-surface p-5">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Zone map preview</h3>
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                {store.zones.length} zones
-              </span>
-            </div>
-            <ul className="mt-4 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-              {store.zones.length === 0 ? (
-                <li className="rounded-xl bg-slate-50 px-3 py-2 text-slate-500">No zones configured yet.</li>
-              ) : (
-                store.zones.slice(0, 6).map((zone) => (
-                  <li key={zone.id} className="rounded-xl bg-slate-50 px-3 py-2">
-                    {zone.name}
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>
-        );
-      case "employee-stats":
-        return (
-          <EmployeePanel
-            employees={store.employees}
-            payrollFilter={payrollFilter}
-            onPayrollFilterChange={setPayrollFilter}
-          />
-        );
-      case "active-responsibilities":
-        return (
-          <div className="card-surface p-5">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Active responsibilities</h3>
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                {store.listResponsibilities({ status: "active" }).length} active
-              </span>
-            </div>
-            <ul className="mt-4 space-y-2 text-sm text-slate-700">
-              {store.zoneResponsibilities.length === 0 ? (
-                <li className="rounded-xl bg-slate-50 px-3 py-2 text-slate-500">
-                  No responsibilities created yet.
-                </li>
-              ) : (
-                store.zoneResponsibilities.slice(0, 6).map((responsibility) => {
-                  const zone = store.zones.find((entry) => entry.id === responsibility.zoneId);
-                  return (
-                    <li key={responsibility.id} className="rounded-xl bg-slate-50 px-3 py-2">
-                      <p className="font-medium text-slate-900">{responsibility.title}</p>
-                      <p className="text-xs text-slate-500">{zone?.name ?? "Unknown zone"}</p>
-                    </li>
-                  );
-                })
-              )}
-            </ul>
-          </div>
-        );
-      case "alerts-notifications":
-        return (
-          <div className="space-y-4">
-            <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-              <div className="space-y-4">
-                <SyncBadge status={store.syncStatus} pending={store.pendingSyncEntries} />
-                <RecentUpdatesCard activity={store.activity} />
-              </div>
-              <LowStockList items={store.inventory} />
-            </div>
-            <StreamActivityFeed enabled={streamReady} />
-          </div>
-        );
-      default:
-        return null;
-    }
-  }
+      .slice(0, 6);
+  }, [store.activity, store.currentEmployeeId, store.employees, store.userRole]);
 
   return (
     <div className="space-y-6">
       <SectionTitle
-        eyebrow="Dashboard"
-        title="Operational command center"
-        description="Customize widget placement, monitor stock and staffing, and track active zone responsibilities."
-        action={
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsEditMode((current) => !current)}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold ${
-                isEditMode ? "bg-cafe-700 text-white" : "bg-slate-100 text-slate-700"
-              }`}
-            >
-              {isEditMode ? "Exit edit mode" : "Edit dashboard"}
-            </button>
-          </div>
-        }
+        eyebrow="Operational Control Panel"
+        title="Operations dashboard"
+        description="Fixed, deterministic layout for all users. No customization controls."
       />
 
-      {isEditMode ? (
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Total items" value={store.metrics.totalItems} helper="Tracked inventory items" />
+        <MetricCard label="Low stock" value={store.metrics.lowCount} tone="low" helper="Needs attention" />
+        <MetricCard label="Critical" value={store.metrics.criticalCount} tone="critical" helper="Urgent restock" />
+        <MetricCard label="Healthy" value={store.metrics.healthyCount} tone="healthy" helper="Stable supply" />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <div className="card-surface p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Dashboard editing · widget visibility
-          </p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {widgets.map((widget) => (
-              <label key={widget.widgetId} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
-                <input
-                  type="checkbox"
-                  checked={widget.visible}
-                  onChange={(event) =>
-                    store.setDashboardWidgetVisibility(store.userRole, widget.widgetId, event.target.checked)
-                  }
-                  className="h-4 w-4"
-                />
-                <span className="text-sm text-slate-700">{WIDGET_LABELS[widget.widgetId]}</span>
-              </label>
-            ))}
+          <p className="text-sm font-semibold text-slate-800">AI Reorder Recommendations</p>
+          <div className="mt-3 space-y-3">
+            {topRecommendations.length === 0 ? (
+              <p className="text-sm text-slate-500">Not enough usage history yet for predictive recommendations.</p>
+            ) : (
+              topRecommendations.map((entry) => (
+                <div key={entry.itemId} className="rounded-xl bg-slate-100 px-3 py-3 text-xs text-slate-700">
+                  <p className="text-sm font-semibold text-slate-900">{entry.itemName}</p>
+                  <p className="mt-1">
+                    Stockout in ~{entry.daysUntilStockout} days ({entry.expectedStockoutWindow}) • Confidence:{" "}
+                    <span className="font-semibold uppercase">{entry.confidence}</span>
+                  </p>
+                  <p className="mt-1">
+                    Reorder suggestion: <span className="font-semibold">{entry.suggestedReorderQuantity}</span> units
+                  </p>
+                  <p className="mt-1 text-slate-600">{entry.reasoningSummary}</p>
+                </div>
+              ))
+            )}
           </div>
         </div>
-      ) : null}
 
-      <div
-        className="relative rounded-2xl border border-dashed border-slate-300 bg-slate-100/50 p-2"
-        style={{ height: containerHeight }}
-        onDragOver={(event) => isEditMode && event.preventDefault()}
-        onDrop={onDropWidget}
-      >
-        {visibleWidgets.map((widget, index) => (
-          <div
-            key={widget.widgetId}
-            draggable={isEditMode}
-            onDragStart={(event) => event.dataTransfer.setData("text/widget-id", widget.widgetId)}
-            className="absolute p-2"
-            style={{
-              left: `${(widget.x / GRID_COLUMNS) * 100}%`,
-              width: `${(widget.w / GRID_COLUMNS) * 100}%`,
-              top: widget.y * ROW_HEIGHT,
-              height: widget.h * ROW_HEIGHT,
-            }}
-          >
-            <div className="h-full overflow-auto rounded-2xl bg-white/70">
-              {isEditMode ? (
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    {WIDGET_LABELS[widget.widgetId]}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => store.moveDashboardWidget(store.userRole, widget.widgetId, Math.max(0, index - 1))}
-                      className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        store.moveDashboardWidget(
-                          store.userRole,
-                          widget.widgetId,
-                          Math.min(visibleWidgets.length - 1, index + 1)
-                        )
-                      }
-                      className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700"
-                    >
-                      ↓
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              <div className="p-2">{renderWidget(widget.widgetId)}</div>
+        <div className="card-surface p-4">
+          <p className="text-sm font-semibold text-slate-800">Sync Status</p>
+          <div className="mt-3 space-y-3">
+            <SyncBadge status={store.syncStatus} pending={store.pendingSyncEntries} />
+            <RecentUpdatesCard activity={visibleActivity} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <div className="card-surface p-4">
+          <p className="text-sm font-semibold text-slate-800">Sales Overview</p>
+          <ul className="mt-3 grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
+            {salesData.map((point) => (
+              <li key={point.label} className="rounded-xl bg-slate-100 px-3 py-2">
+                <span className="font-semibold">{point.label}:</span> {point.sales}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="card-surface p-4">
+          <p className="text-sm font-semibold text-slate-800">Peak Hours</p>
+          <ul className="mt-3 grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
+            {peakHourData.map((point) => (
+              <li key={point.hour} className="rounded-xl bg-slate-100 px-3 py-2">
+                <span className="font-semibold">{point.hour}:</span> {point.orders} orders
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <div className="card-surface p-4">
+          <p className="text-sm font-semibold text-slate-800">Store Map Snapshot</p>
+          <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+            <div className="rounded-xl bg-slate-100 px-3 py-2">
+              <p className="text-xs text-slate-500">Zones</p>
+              <p className="font-semibold text-slate-800">{store.zones.length}</p>
+            </div>
+            <div className="rounded-xl bg-slate-100 px-3 py-2">
+              <p className="text-xs text-slate-500">Subzones</p>
+              <p className="font-semibold text-slate-800">{store.subzones.length}</p>
+            </div>
+            <div className="rounded-xl bg-slate-100 px-3 py-2">
+              <p className="text-xs text-slate-500">Map Items</p>
+              <p className="font-semibold text-slate-800">{store.itemPlacements.length}</p>
             </div>
           </div>
-        ))}
+        </div>
+
+        <div className="card-surface p-4">
+          <p className="text-sm font-semibold text-slate-800">Chatbot Activity</p>
+          <div className="mt-3">
+            <StreamActivityFeed enabled={streamReady} />
+          </div>
+        </div>
       </div>
     </div>
   );

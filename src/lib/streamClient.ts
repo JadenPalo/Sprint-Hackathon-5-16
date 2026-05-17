@@ -10,6 +10,7 @@ export interface StreamUserIdentity {
 
 let client: StreamChat | null = null;
 let connectedUserId: string | null = null;
+let connectionSequence = 0;
 
 export function getStreamClient(): StreamChat | null {
   const config = getStreamConfig();
@@ -34,13 +35,17 @@ export async function connectStreamUser(user: StreamUserIdentity): Promise<Strea
     return streamClient;
   }
 
+  const sequence = ++connectionSequence;
   const tokenResponse = await requestStreamToken(user);
-  if (!tokenResponse?.token) {
+  if (!tokenResponse?.token || sequence !== connectionSequence) {
     return null;
   }
 
   if (connectedUserId) {
     await streamClient.disconnectUser();
+    if (sequence !== connectionSequence) {
+      return null;
+    }
     connectedUserId = null;
   }
 
@@ -53,11 +58,19 @@ export async function connectStreamUser(user: StreamUserIdentity): Promise<Strea
     tokenResponse.token
   );
 
+  if (sequence !== connectionSequence) {
+    await streamClient.disconnectUser();
+    connectedUserId = null;
+    return null;
+  }
+
   connectedUserId = user.id;
   return streamClient;
 }
 
 export async function disconnectStreamUser() {
+  connectionSequence += 1;
+
   if (!client || !connectedUserId) {
     return;
   }

@@ -2,16 +2,14 @@ import { useMemo, useState } from "react";
 import { SectionTitle } from "../components/common/SectionTitle";
 import { EmptyState } from "../components/common/EmptyState";
 import { ResponsibilityCard } from "../components/responsibilities/ResponsibilityCard";
-import type { AppStore } from "../hooks/useAppState";
+import { useStore } from "../context/StoreContext";
 
-interface ResponsibilitiesPageProps {
-  store: AppStore;
-}
-
-export function ResponsibilitiesPage({ store }: ResponsibilitiesPageProps) {
+export function ResponsibilitiesPage() {
+  const store = useStore();
   const [expandedResponsibilityId, setExpandedResponsibilityId] = useState<string | null>(null);
   const [draftByZone, setDraftByZone] = useState<Record<string, string>>({});
 
+  const isAdmin = store.userRole === "admin";
   const selectedEmployee =
     store.employees.find((employee) => employee.id === store.currentEmployeeId) ?? null;
 
@@ -34,6 +32,10 @@ export function ResponsibilitiesPage({ store }: ResponsibilitiesPageProps) {
   }, [assignedZones, store]);
 
   function createForZone(zoneId: string) {
+    if (!isAdmin) {
+      return;
+    }
+
     const title = (draftByZone[zoneId] ?? "").trim();
     if (!title || !selectedEmployee) {
       return;
@@ -65,8 +67,9 @@ export function ResponsibilitiesPage({ store }: ResponsibilitiesPageProps) {
           </span>
           <select
             value={store.currentEmployeeId ?? ""}
-            onChange={(event) => store.setCurrentEmployee(event.target.value || null)}
-            className="soft-ring w-full rounded-2xl border-0 bg-slate-50 px-3 py-3 text-sm outline-none"
+            onChange={(event) => isAdmin && store.setCurrentEmployee(event.target.value || null)}
+            disabled={!isAdmin}
+            className="soft-ring w-full rounded-2xl border-0 bg-slate-50 px-3 py-3 text-sm outline-none disabled:opacity-60"
           >
             {store.employees.length === 0 ? <option value="">No employees configured</option> : null}
             {store.employees.map((employee) => (
@@ -118,13 +121,15 @@ export function ResponsibilitiesPage({ store }: ResponsibilitiesPageProps) {
                       onChange={(event) =>
                         setDraftByZone((current) => ({ ...current, [zone.id]: event.target.value }))
                       }
-                      placeholder="Add new responsibility title"
-                      className="soft-ring min-w-0 flex-1 rounded-xl border-0 bg-slate-50 px-3 py-2 text-sm outline-none"
+                      disabled={!isAdmin}
+                      placeholder={isAdmin ? "Add new responsibility title" : "Admin assigns responsibilities"}
+                      className="soft-ring min-w-0 flex-1 rounded-xl border-0 bg-slate-50 px-3 py-2 text-sm outline-none disabled:opacity-60"
                     />
                     <button
                       type="button"
                       onClick={() => createForZone(zone.id)}
-                      className="rounded-xl bg-cafe-700 px-3 py-2 text-sm font-semibold text-white"
+                      disabled={!isAdmin}
+                      className="rounded-xl bg-cafe-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
                     >
                       Add
                     </button>
@@ -150,6 +155,10 @@ export function ResponsibilitiesPage({ store }: ResponsibilitiesPageProps) {
                           onUpdate={(responsibilityId, updates) =>
                             store.updateResponsibility(responsibilityId, updates)
                           }
+                          canEditDescription={isAdmin}
+                          canEditAssignment={isAdmin}
+                          canEditStatus={isAdmin || responsibility.assignedPersonId === store.currentEmployeeId}
+                          canEditNotes={isAdmin || responsibility.assignedPersonId === store.currentEmployeeId}
                         />
                       ))
                     )}

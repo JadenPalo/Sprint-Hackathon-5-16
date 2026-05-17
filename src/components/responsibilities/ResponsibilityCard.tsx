@@ -11,7 +11,10 @@ interface ResponsibilityCardProps {
       Pick<ZoneResponsibility, "title" | "description" | "status" | "notes" | "assignedPersonId">
     >
   ) => void;
-  readOnly?: boolean;
+  canEditDescription?: boolean;
+  canEditAssignment?: boolean;
+  canEditStatus?: boolean;
+  canEditNotes?: boolean;
 }
 
 export function ResponsibilityCard({
@@ -20,7 +23,10 @@ export function ResponsibilityCard({
   expanded,
   onToggle,
   onUpdate,
-  readOnly = false,
+  canEditDescription = false,
+  canEditAssignment = false,
+  canEditStatus = false,
+  canEditNotes = false,
 }: ResponsibilityCardProps) {
   const assignedEmployee = employees.find((employee) => employee.id === responsibility.assignedPersonId);
 
@@ -54,7 +60,7 @@ export function ResponsibilityCard({
                 onChange={(event) =>
                   onUpdate(responsibility.id, { description: event.target.value })
                 }
-                readOnly={readOnly}
+                readOnly={!canEditDescription}
                 rows={2}
                 className="soft-ring w-full rounded-xl border-0 bg-white px-3 py-2 text-sm outline-none"
               />
@@ -72,7 +78,7 @@ export function ResponsibilityCard({
                       status: event.target.value as ZoneResponsibility["status"],
                     })
                   }
-                  disabled={readOnly}
+                  disabled={!canEditStatus}
                   className="soft-ring w-full rounded-xl border-0 bg-white px-3 py-2 text-sm outline-none"
                 >
                   <option value="active">active</option>
@@ -92,7 +98,7 @@ export function ResponsibilityCard({
                       assignedPersonId: event.target.value || undefined,
                     })
                   }
-                  disabled={readOnly}
+                  disabled={!canEditAssignment}
                   className="soft-ring w-full rounded-xl border-0 bg-white px-3 py-2 text-sm outline-none"
                 >
                   <option value="">Unassigned</option>
@@ -112,7 +118,7 @@ export function ResponsibilityCard({
               <textarea
                 value={responsibility.notes}
                 onChange={(event) => onUpdate(responsibility.id, { notes: event.target.value })}
-                readOnly={readOnly}
+                readOnly={!canEditNotes}
                 rows={3}
                 className="soft-ring w-full rounded-xl border-0 bg-white px-3 py-2 text-sm outline-none"
               />

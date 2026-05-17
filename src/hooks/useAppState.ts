@@ -18,9 +18,15 @@ import {
   updateItemQuantity,
 } from "../lib/inventory";
 import { buildPeakHourData, buildSeasonalInsight, buildTopItems } from "../lib/analytics";
+import { buildActivityInsightsReport } from "../lib/activityInsights";
+import { buildDailyOpsReport } from "../lib/dailyOps";
 import { parseInventoryCommand } from "../lib/parser";
+import { buildProcurementRecommendations } from "../lib/procurement";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { getFirebaseServices, isFirebaseEnabled } from "../lib/firebase";
+import { buildGeminiAssistantResponse, isGeminiAvailable } from "../lib/gemini";
 import { loadState, saveState, type PersistedAppState } from "../lib/storage";
-import { createPendingSyncEntry, simulateSync } from "../lib/sync";
+import { createPendingSyncEntry } from "../lib/sync";
 import { connectStreamUser, disconnectStreamUser } from "../lib/streamClient";
 import { ensureZoneChannel, postInventoryAttachmentEvent, postZoneSystemMessage } from "../lib/streamApi";
 import type { ChatMessage } from "../types/chat";
@@ -28,16 +34,15 @@ import type {
   ActivityEntry,
   Block,
   BlockPlacement,
-  DashboardWidgetId,
-  DashboardWidgetLayout,
   EmployeeResponsibility,
   InventoryDraft,
   InventoryItem,
   ItemPlacement,
+  MapActivityEntry,
   Section,
   Subzone,
+  UsageEvent,
   UserRole,
-  UserDashboardLayout,
   Zone,
   ZoneResponsibility,
 } from "../types/inventory";
@@ -46,6 +51,7 @@ import type { PendingSyncEntry, SyncStatus } from "../types/sync";
 interface AppState {
   inventory: InventoryItem[];
   activity: ActivityEntry[];
+  mapActivity: MapActivityEntry[];
   messages: ChatMessage[];
   adminMessages: ChatMessage[];
   pendingSyncEntries: PendingSyncEntry[];
@@ -55,29 +61,14 @@ interface AppState {
   userRole: UserRole;
   employees: EmployeeResponsibility[];
   zoneResponsibilities: ZoneResponsibility[];
-  dashboardLayouts: UserDashboardLayout[];
   subzones: Subzone[];
   itemPlacements: ItemPlacement[];
   sections: Section[];
   blockPlacements: BlockPlacement[];
+  usageEvents: UsageEvent[];
   currentEmployeeId: string | null;
 }
 
-const DEFAULT_DASHBOARD_WIDGETS: DashboardWidgetLayout[] = [
-  { widgetId: "inventory-summary", visible: true, x: 0, y: 0, w: 6, h: 2, order: 0 },
-  { widgetId: "employee-stats", visible: true, x: 6, y: 0, w: 6, h: 2, order: 1 },
-  { widgetId: "active-responsibilities", visible: true, x: 0, y: 2, w: 6, h: 3, order: 2 },
-  { widgetId: "alerts-notifications", visible: true, x: 6, y: 2, w: 6, h: 3, order: 3 },
-  { widgetId: "zone-map-preview", visible: true, x: 0, y: 5, w: 12, h: 2, order: 4 },
-];
-
-function createDefaultDashboardLayout(userId: string): UserDashboardLayout {
-  return {
-    userId,
-    widgets: DEFAULT_DASHBOARD_WIDGETS.map((widget) => ({ ...widget })),
-    updatedAt: new Date().toISOString(),
-  };
-}
 
 function createInitialState(): AppState {
   const persisted = typeof window !== "undefined" ? loadState() : null;
@@ -119,23 +110,19 @@ function createInitialState(): AppState {
             },
           }));
 
-    const hasCurrentLayout = (persisted.dashboardLayouts ?? []).some(
-      (layout) => layout.userId === persisted.userRole
-    );
-
     return {
       ...persisted,
+      mapActivity: persisted.mapActivity ?? [],
       adminMessages:
         persisted.adminMessages.length > 0 ? persisted.adminMessages : [defaultAdminWelcomeMessage],
       employees: persisted.employees ?? [],
       zoneResponsibilities: persisted.zoneResponsibilities ?? [],
-      dashboardLayouts: hasCurrentLayout
-        ? persisted.dashboardLayouts ?? []
-        : [...(persisted.dashboardLayouts ?? []), createDefaultDashboardLayout(persisted.userRole)],
+
       subzones: persisted.subzones ?? [],
       itemPlacements: persisted.itemPlacements ?? [],
       sections,
       blockPlacements,
+      usageEvents: persisted.usageEvents ?? [],
       currentEmployeeId: persisted.currentEmployeeId ?? persisted.employees?.[0]?.id ?? null,
     };
   }
@@ -143,16 +130,17 @@ function createInitialState(): AppState {
   return {
     inventory: seedInventory,
     activity: defaultActivity,
+    mapActivity: [],
     messages: [defaultWelcomeMessage],
     adminMessages: [defaultAdminWelcomeMessage],
     pendingSyncEntries: [],
     isOnline: true,
-    syncStatus: "online",
+    syncStatus: "online-synced",
     zones: [],
     userRole: "staff",
     employees: [],
     zoneResponsibilities: [],
-    dashboardLayouts: [createDefaultDashboardLayout("staff"), createDefaultDashboardLayout("admin")],
+
     subzones: [],
     itemPlacements: [],
     sections: [
@@ -161,6 +149,7 @@ function createInitialState(): AppState {
       { id: crypto.randomUUID(), index: 2, blocks: [] },
     ],
     blockPlacements: [],
+    usageEvents: [],
     currentEmployeeId: null,
   };
 }
@@ -188,6 +177,24 @@ function createMessage(role: ChatMessage["role"], text: string): ChatMessage {
   };
 }
 
+function createMapActivity(message: string): MapActivityEntry {
+  return {
+    id: crypto.randomUUID(),
+    message,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function createUsageEvent(itemId: string, delta: number, actorId: string | null): UsageEvent {
+  return {
+    id: crypto.randomUUID(),
+    itemId,
+    delta,
+    timestamp: new Date().toISOString(),
+    actorId,
+  };
+}
+
 function findBestZoneMatch(zones: Zone[], phrase: string): Zone | null {
   const normalizedPhrase = normalizeName(phrase);
   if (!normalizedPhrase) {
@@ -207,39 +214,27 @@ function findBestZoneMatch(zones: Zone[], phrase: string): Zone | null {
   return zones.find((zone) => normalizedPhrase.includes(normalizeName(zone.name))) ?? null;
 }
 
-function upsertDashboardLayout(
-  layouts: UserDashboardLayout[],
-  userId: UserRole,
-  updater: (widgets: DashboardWidgetLayout[]) => DashboardWidgetLayout[]
-): UserDashboardLayout[] {
-  const existing = layouts.find((layout) => layout.userId === userId);
-  if (!existing) {
-    return [...layouts, { ...createDefaultDashboardLayout(userId), widgets: updater(DEFAULT_DASHBOARD_WIDGETS) }];
-  }
-
-  return layouts.map((layout) =>
-    layout.userId === userId
-      ? {
-          ...layout,
-          widgets: updater(layout.widgets),
-          updatedAt: new Date().toISOString(),
-        }
-      : layout
-  );
-}
-
-function getLayoutForUser(layouts: UserDashboardLayout[], userId: UserRole): UserDashboardLayout {
-  return layouts.find((layout) => layout.userId === userId) ?? createDefaultDashboardLayout(userId);
-}
 
 export function useAppState() {
   const [state, setState] = useState<AppState>(createInitialState);
   const syncTimer = useRef<number | null>(null);
+  const persistTimer = useRef<number | null>(null);
+  const streamConnectionVersion = useRef(0);
+  const firebaseWriteNonceRef = useRef<string | null>(null);
+  const skipNextFirebaseShadowWriteRef = useRef(false);
+  const firebaseEnabled = isFirebaseEnabled();
+  const firebaseServices = firebaseEnabled ? getFirebaseServices() : null;
 
   useEffect(() => {
+    if (persistTimer.current) {
+      window.clearTimeout(persistTimer.current);
+    }
+
     const persistedState: PersistedAppState = {
       inventory: state.inventory,
       activity: state.activity,
+      usageEvents: state.usageEvents,
+      mapActivity: state.mapActivity,
       messages: state.messages,
       adminMessages: state.adminMessages,
       pendingSyncEntries: state.pendingSyncEntries,
@@ -249,7 +244,7 @@ export function useAppState() {
       userRole: state.userRole,
       employees: state.employees,
       zoneResponsibilities: state.zoneResponsibilities,
-      dashboardLayouts: state.dashboardLayouts,
+
       subzones: state.subzones,
       itemPlacements: state.itemPlacements,
       sections: state.sections,
@@ -257,14 +252,96 @@ export function useAppState() {
       currentEmployeeId: state.currentEmployeeId,
     };
 
-    saveState(persistedState);
-  }, [state]);
+    persistTimer.current = window.setTimeout(() => {
+      saveState(persistedState);
+
+      if (skipNextFirebaseShadowWriteRef.current) {
+        skipNextFirebaseShadowWriteRef.current = false;
+      } else if (firebaseEnabled && firebaseServices) {
+        const nonce = crypto.randomUUID();
+        firebaseWriteNonceRef.current = nonce;
+
+        void setDoc(
+          doc(firebaseServices.db, "configs", "app-state"),
+          {
+            ...persistedState,
+            __meta: {
+              nonce,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+          { merge: true }
+        );
+      }
+
+      persistTimer.current = null;
+    }, 350);
+
+    return () => {
+      if (persistTimer.current) {
+        window.clearTimeout(persistTimer.current);
+      }
+    };
+  }, [state, firebaseEnabled, firebaseServices]);
+
+  useEffect(() => {
+    if (!firebaseEnabled || !firebaseServices) {
+      return;
+    }
+
+    const unsubscribe = onSnapshot(doc(firebaseServices.db, "configs", "app-state"), (snapshot) => {
+      if (!snapshot.exists()) {
+        return;
+      }
+
+      const payload = snapshot.data() as Partial<PersistedAppState> & {
+        __meta?: { nonce?: string };
+      };
+
+      if (payload.__meta?.nonce && payload.__meta.nonce === firebaseWriteNonceRef.current) {
+        return;
+      }
+
+      skipNextFirebaseShadowWriteRef.current = true;
+
+      setState((current) => ({
+        ...current,
+        inventory: payload.inventory ?? current.inventory,
+        activity: payload.activity ?? current.activity,
+        usageEvents: payload.usageEvents ?? current.usageEvents,
+        mapActivity: payload.mapActivity ?? current.mapActivity,
+        messages: payload.messages ?? current.messages,
+        adminMessages: payload.adminMessages ?? current.adminMessages,
+        pendingSyncEntries: payload.pendingSyncEntries ?? current.pendingSyncEntries,
+        isOnline: payload.isOnline ?? current.isOnline,
+        syncStatus: payload.syncStatus ?? current.syncStatus,
+        zones: payload.zones ?? current.zones,
+        userRole: payload.userRole ?? current.userRole,
+        employees: payload.employees ?? current.employees,
+        zoneResponsibilities: payload.zoneResponsibilities ?? current.zoneResponsibilities,
+        subzones: payload.subzones ?? current.subzones,
+        itemPlacements: payload.itemPlacements ?? current.itemPlacements,
+        sections: payload.sections ?? current.sections,
+        blockPlacements: payload.blockPlacements ?? current.blockPlacements,
+        currentEmployeeId: payload.currentEmployeeId ?? current.currentEmployeeId,
+      }));
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [firebaseEnabled, firebaseServices]);
 
   useEffect(() => {
     return () => {
       if (syncTimer.current) {
         window.clearTimeout(syncTimer.current);
       }
+      if (persistTimer.current) {
+        window.clearTimeout(persistTimer.current);
+      }
+      streamConnectionVersion.current += 1;
+      void disconnectStreamUser();
     };
   }, []);
 
@@ -280,6 +357,21 @@ export function useAppState() {
       healthyCount,
     };
   }, [state.inventory]);
+
+  const procurementRecommendations = useMemo(
+    () => buildProcurementRecommendations(state.inventory, state.usageEvents),
+    [state.inventory, state.usageEvents]
+  );
+
+  const dailyOpsReport = useMemo(
+    () => buildDailyOpsReport(state.inventory, state.usageEvents, state.activity, procurementRecommendations),
+    [state.inventory, state.usageEvents, state.activity, procurementRecommendations]
+  );
+
+  const activityInsightsReport = useMemo(
+    () => buildActivityInsightsReport(state.activity, state.employees, state.zoneResponsibilities),
+    [state.activity, state.employees, state.zoneResponsibilities]
+  );
 
   const activeEmployee = useMemo(
     () => state.employees.find((employee) => employee.id === state.currentEmployeeId) ?? null,
@@ -303,11 +395,13 @@ export function useAppState() {
   );
 
   useEffect(() => {
+    const connectionVersion = streamConnectionVersion.current + 1;
+    streamConnectionVersion.current = connectionVersion;
     let cancelled = false;
 
     async function bootstrapStreamUser() {
       const connected = await connectStreamUser(streamActor);
-      if (!connected || cancelled) {
+      if (!connected || cancelled || streamConnectionVersion.current !== connectionVersion) {
         return;
       }
     }
@@ -316,27 +410,111 @@ export function useAppState() {
 
     return () => {
       cancelled = true;
+      streamConnectionVersion.current += 1;
       void disconnectStreamUser();
     };
   }, [streamActor]);
 
-  function scheduleOnlineReset() {
+  function getSyncStatus(isOnline: boolean, queue: PendingSyncEntry[]): SyncStatus {
+    if (!isOnline) {
+      return "offline-queued";
+    }
+
+    if (queue.some((entry) => entry.status === "failed")) {
+      return "sync-error";
+    }
+
+    return queue.length > 0 ? "online-syncing" : "online-synced";
+  }
+
+  function scheduleOnlineReset(delayMs = 120) {
     if (syncTimer.current) {
       window.clearTimeout(syncTimer.current);
     }
 
-    syncTimer.current = simulateSync(() => {
-      setState((current) => {
-        if (!current.isOnline || current.pendingSyncEntries.length > 0) {
-          return current;
-        }
+    syncTimer.current = window.setTimeout(() => {
+      processSyncQueue();
+    }, delayMs);
+  }
+
+  function processSyncQueue() {
+    let nextDelay: number | null = null;
+
+    setState((current) => {
+      if (!current.isOnline) {
+        return {
+          ...current,
+          syncStatus: getSyncStatus(false, current.pendingSyncEntries),
+        };
+      }
+
+      if (current.pendingSyncEntries.length === 0) {
+        return {
+          ...current,
+          syncStatus: "online-synced",
+        };
+      }
+
+      const now = Date.now();
+      const first = current.pendingSyncEntries[0];
+      if (!first) {
+        return {
+          ...current,
+          pendingSyncEntries: [],
+          syncStatus: "online-synced",
+        };
+      }
+
+      const retryAt = first.nextRetryAt ? new Date(first.nextRetryAt).getTime() : 0;
+      if (first.status === "failed" && retryAt > now) {
+        nextDelay = Math.max(250, retryAt - now);
+        return {
+          ...current,
+          syncStatus: "sync-error",
+        };
+      }
+
+      const shouldForceFailure = first.payload.forceFailure === true && first.retryCount < 3;
+      if (shouldForceFailure) {
+        const nextRetryCount = first.retryCount + 1;
+        const backoffMs = Math.min(30000, 1000 * 2 ** nextRetryCount);
+        const failedEntry: PendingSyncEntry = {
+          ...first,
+          status: "failed",
+          retryCount: nextRetryCount,
+          lastError: "Retry required for queued action.",
+          nextRetryAt: new Date(now + backoffMs).toISOString(),
+        };
+
+        nextDelay = backoffMs;
 
         return {
           ...current,
-          syncStatus: "online",
+          pendingSyncEntries: [failedEntry, ...current.pendingSyncEntries.slice(1)],
+          syncStatus: "sync-error",
         };
-      });
+      }
+
+      const remainingQueue = current.pendingSyncEntries.slice(1);
+      nextDelay = remainingQueue.length > 0 ? 120 : null;
+
+      return {
+        ...current,
+        pendingSyncEntries: remainingQueue,
+        syncStatus: getSyncStatus(true, remainingQueue),
+        activity:
+          remainingQueue.length === 0
+            ? [createActivity("Queued offline changes synced successfully.", false, "sync"), ...current.activity].slice(
+                0,
+                20
+              )
+            : current.activity,
+      };
     });
+
+    if (nextDelay !== null) {
+      scheduleOnlineReset(nextDelay);
+    }
   }
 
   function appendAssistantMessage(text: string) {
@@ -395,17 +573,36 @@ export function useAppState() {
     setState((current) => {
       const pendingSync = !current.isOnline;
       const updatedItems = updater(current.inventory);
+      const previousById = new Map(current.inventory.map((item) => [item.id, item]));
+      const usageDeltaEvents: UsageEvent[] = [];
+
+      for (const updated of updatedItems) {
+        const previous = previousById.get(updated.id);
+        if (!previous) {
+          continue;
+        }
+
+        const delta = updated.quantity - previous.quantity;
+        if (delta !== 0) {
+          usageDeltaEvents.push(createUsageEvent(updated.id, delta, current.currentEmployeeId));
+        }
+      }
+
       const activityEntry = createActivity(activityMessage, pendingSync, activityType);
       const pendingSyncEntries = pendingSync
-        ? [...current.pendingSyncEntries, createPendingSyncEntry(activityMessage)]
+        ? [
+            ...current.pendingSyncEntries,
+            createPendingSyncEntry(activityMessage, "inventory_update", { activityType, activityMessage }),
+          ]
         : current.pendingSyncEntries;
 
       return {
         ...current,
         inventory: updatedItems,
+        usageEvents: [...usageDeltaEvents, ...current.usageEvents].slice(0, 5000),
         activity: [activityEntry, ...current.activity].slice(0, 20),
         pendingSyncEntries,
-        syncStatus: pendingSync ? "pending-sync" : "synced",
+        syncStatus: getSyncStatus(current.isOnline, pendingSyncEntries),
       };
     });
 
@@ -484,15 +681,24 @@ export function useAppState() {
       const pendingSync = !current.isOnline;
       const activityEntry = createActivity(`Created zone ${nextZone.name}.`, pendingSync);
       const pendingSyncEntries = pendingSync
-        ? [...current.pendingSyncEntries, createPendingSyncEntry(`Created zone ${nextZone.name}.`)]
+        ? [
+            ...current.pendingSyncEntries,
+            createPendingSyncEntry(`Created zone ${nextZone.name}.`, "map_update", {
+              action: "create_zone",
+              zoneId: nextZone.id,
+              zoneName: nextZone.name,
+            }),
+          ]
         : current.pendingSyncEntries;
+      const mapEntry = createMapActivity(`Zone created: ${nextZone.name}.`);
 
       return {
         ...current,
         zones: [...current.zones, nextZone],
         activity: [activityEntry, ...current.activity].slice(0, 20),
+        mapActivity: [mapEntry, ...current.mapActivity].slice(0, 50),
         pendingSyncEntries,
-        syncStatus: pendingSync ? "pending-sync" : "synced",
+        syncStatus: getSyncStatus(current.isOnline, pendingSyncEntries),
       };
     });
 
@@ -523,15 +729,24 @@ export function useAppState() {
       const pendingSync = !current.isOnline;
       const activityEntry = createActivity(`Updated zone ${zone.name}.`, pendingSync);
       const pendingSyncEntries = pendingSync
-        ? [...current.pendingSyncEntries, createPendingSyncEntry(`Updated zone ${zone.name}.`)]
+        ? [
+            ...current.pendingSyncEntries,
+            createPendingSyncEntry(`Updated zone ${zone.name}.`, "map_update", {
+              action: "update_zone",
+              zoneId: id,
+              updates,
+            }),
+          ]
         : current.pendingSyncEntries;
+      const mapEntry = createMapActivity(`Zone updated: ${updates.name?.trim() || zone.name}.`);
 
       return {
         ...current,
         zones: current.zones.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)),
         activity: [activityEntry, ...current.activity].slice(0, 20),
+        mapActivity: [mapEntry, ...current.mapActivity].slice(0, 50),
         pendingSyncEntries,
-        syncStatus: pendingSync ? "pending-sync" : "synced",
+        syncStatus: getSyncStatus(current.isOnline, pendingSyncEntries),
       };
     });
 
@@ -562,8 +777,16 @@ export function useAppState() {
       const pendingSync = !current.isOnline;
       const activityEntry = createActivity(`Deleted zone ${zone.name}.`, pendingSync, "delete");
       const pendingSyncEntries = pendingSync
-        ? [...current.pendingSyncEntries, createPendingSyncEntry(`Deleted zone ${zone.name}.`)]
+        ? [
+            ...current.pendingSyncEntries,
+            createPendingSyncEntry(`Deleted zone ${zone.name}.`, "map_update", {
+              action: "delete_zone",
+              zoneId: id,
+              zoneName: zone.name,
+            }),
+          ]
         : current.pendingSyncEntries;
+      const mapEntry = createMapActivity(`Zone deleted: ${zone.name}.`);
 
       return {
         ...current,
@@ -582,8 +805,9 @@ export function useAppState() {
           (responsibility) => responsibility.zoneId !== id
         ),
         activity: [activityEntry, ...current.activity].slice(0, 20),
+        mapActivity: [mapEntry, ...current.mapActivity].slice(0, 50),
         pendingSyncEntries,
-        syncStatus: pendingSync ? "pending-sync" : "synced",
+        syncStatus: getSyncStatus(current.isOnline, pendingSyncEntries),
       };
     });
 
@@ -633,22 +857,41 @@ export function useAppState() {
 
     const id = crypto.randomUUID();
 
-    setState((current) => ({
-      ...current,
-      employees: [
-        ...current.employees,
-        {
-          id,
-          name: trimmed,
-          role,
-          isOnPayroll: true,
-          assignedZoneIds: [],
-          assignedResponsibilityIds: [],
-          responsibilityNotes: "",
-        },
-      ],
-      currentEmployeeId: current.currentEmployeeId ?? id,
-    }));
+    setState((current) => {
+      const pendingSync = !current.isOnline;
+      const activityEntry = createActivity(`Added employee ${trimmed}.`, pendingSync);
+      const pendingSyncEntries = pendingSync
+        ? [
+            ...current.pendingSyncEntries,
+            createPendingSyncEntry(`Added employee ${trimmed}.`, "employee_update", {
+              action: "add_employee",
+              employeeId: id,
+              name: trimmed,
+              role,
+            }),
+          ]
+        : current.pendingSyncEntries;
+
+      return {
+        ...current,
+        employees: [
+          ...current.employees,
+          {
+            id,
+            name: trimmed,
+            role,
+            isOnPayroll: true,
+            assignedZoneIds: [],
+            assignedResponsibilityIds: [],
+            responsibilityNotes: "",
+          },
+        ],
+        activity: [activityEntry, ...current.activity].slice(0, 20),
+        pendingSyncEntries,
+        syncStatus: getSyncStatus(current.isOnline, pendingSyncEntries),
+        currentEmployeeId: current.currentEmployeeId ?? id,
+      };
+    });
   }
 
   function updateEmployee(
@@ -660,14 +903,41 @@ export function useAppState() {
       >
     >
   ) {
-    const employeeName = state.employees.find((employee) => employee.id === id)?.name ?? "Employee";
+    if (state.userRole !== "admin") {
+      return;
+    }
 
-    setState((current) => ({
-      ...current,
-      employees: current.employees.map((employee) =>
-        employee.id === id ? { ...employee, ...updates } : employee
-      ),
-    }));
+    const employeeName = state.employees.find((employee) => employee.id === id)?.name ?? "Employee";
+    const shouldScheduleOnlineReset = state.isOnline;
+
+    setState((current) => {
+      const pendingSync = !current.isOnline;
+      const activityEntry = createActivity(`Updated employee ${employeeName}.`, pendingSync);
+      const pendingSyncEntries = pendingSync
+        ? [
+            ...current.pendingSyncEntries,
+            createPendingSyncEntry(`Updated employee ${employeeName}.`, "employee_update", {
+              action: "update_employee",
+              employeeId: id,
+              updates,
+            }),
+          ]
+        : current.pendingSyncEntries;
+
+      return {
+        ...current,
+        employees: current.employees.map((employee) =>
+          employee.id === id ? { ...employee, ...updates } : employee
+        ),
+        activity: [activityEntry, ...current.activity].slice(0, 20),
+        pendingSyncEntries,
+        syncStatus: getSyncStatus(current.isOnline, pendingSyncEntries),
+      };
+    });
+
+    if (shouldScheduleOnlineReset) {
+      scheduleOnlineReset();
+    }
 
     if (updates.assignedZoneIds) {
       updates.assignedZoneIds.forEach((zoneId) => {
@@ -736,6 +1006,10 @@ export function useAppState() {
       notes?: string;
     }
   ) {
+    if (state.userRole !== "admin") {
+      return;
+    }
+
     const title = input.title.trim();
     if (!title) {
       return;
@@ -751,8 +1025,26 @@ export function useAppState() {
       notes: input.notes ?? "",
       createdAt: new Date().toISOString(),
     };
+    const shouldScheduleOnlineReset = state.isOnline;
 
     setState((current) => {
+      const pendingSync = !current.isOnline;
+      const activityMessage = `Created responsibility ${responsibility.title}.`;
+      const activityEntry = createActivity(activityMessage, pendingSync, "add");
+      const pendingSyncEntries = pendingSync
+        ? [
+            ...current.pendingSyncEntries,
+            createPendingSyncEntry(activityMessage, "task_update", {
+              action: "create_responsibility",
+              responsibilityId: responsibility.id,
+              zoneId: responsibility.zoneId,
+              title: responsibility.title,
+              assignedPersonId: responsibility.assignedPersonId ?? null,
+              status: responsibility.status,
+            }),
+          ]
+        : current.pendingSyncEntries;
+
       const nextEmployees = responsibility.assignedPersonId
         ? current.employees.map((employee) =>
             employee.id === responsibility.assignedPersonId
@@ -770,8 +1062,15 @@ export function useAppState() {
         ...current,
         zoneResponsibilities: [...current.zoneResponsibilities, responsibility],
         employees: nextEmployees,
+        activity: [activityEntry, ...current.activity].slice(0, 20),
+        pendingSyncEntries,
+        syncStatus: getSyncStatus(current.isOnline, pendingSyncEntries),
       };
     });
+
+    if (shouldScheduleOnlineReset) {
+      scheduleOnlineReset();
+    }
 
     void postZoneSystemMessage({
       zoneId,
@@ -794,6 +1093,41 @@ export function useAppState() {
       Pick<ZoneResponsibility, "title" | "description" | "status" | "notes" | "assignedPersonId">
     >
   ) {
+    const currentResponsibilitySnapshot = state.zoneResponsibilities.find(
+      (responsibility) => responsibility.id === responsibilityId
+    );
+
+    if (!currentResponsibilitySnapshot) {
+      return;
+    }
+
+    const isAdmin = state.userRole === "admin";
+    const isOwnTask = currentResponsibilitySnapshot.assignedPersonId === state.currentEmployeeId;
+
+    if (!isAdmin && !isOwnTask) {
+      return;
+    }
+
+    const sanitizedUpdates: Partial<
+      Pick<ZoneResponsibility, "title" | "description" | "status" | "notes" | "assignedPersonId">
+    > = isAdmin
+      ? updates
+      : {
+          status: updates.status,
+          notes: updates.notes,
+        };
+
+    if (!isAdmin) {
+      const hasAssignmentChange = Object.prototype.hasOwnProperty.call(updates, "assignedPersonId");
+      const hasTitleChange = Object.prototype.hasOwnProperty.call(updates, "title");
+      const hasDescriptionChange = Object.prototype.hasOwnProperty.call(updates, "description");
+      if (hasAssignmentChange || hasTitleChange || hasDescriptionChange) {
+        return;
+      }
+    }
+
+    const shouldScheduleOnlineReset = state.isOnline;
+
     setState((current) => {
       const existing = current.zoneResponsibilities.find(
         (responsibility) => responsibility.id === responsibilityId
@@ -803,19 +1137,23 @@ export function useAppState() {
         return current;
       }
 
+      const pendingSync = !current.isOnline;
+      const activityMessage = `Updated responsibility ${sanitizedUpdates.title ?? existing.title}.`;
+      const activityEntry = createActivity(activityMessage, pendingSync);
+
       const nextResponsibilities = current.zoneResponsibilities.map((responsibility) =>
-        responsibility.id === responsibilityId ? { ...responsibility, ...updates } : responsibility
+        responsibility.id === responsibilityId ? { ...responsibility, ...sanitizedUpdates } : responsibility
       );
 
       let nextEmployees = current.employees;
       if (
-        Object.prototype.hasOwnProperty.call(updates, "assignedPersonId") &&
-        updates.assignedPersonId !== existing.assignedPersonId
+        Object.prototype.hasOwnProperty.call(sanitizedUpdates, "assignedPersonId") &&
+        sanitizedUpdates.assignedPersonId !== existing.assignedPersonId
       ) {
         nextEmployees = current.employees.map((employee) => {
           const removed = employee.assignedResponsibilityIds.filter((id) => id !== responsibilityId);
 
-          if (updates.assignedPersonId && employee.id === updates.assignedPersonId) {
+          if (sanitizedUpdates.assignedPersonId && employee.id === sanitizedUpdates.assignedPersonId) {
             return {
               ...employee,
               assignedResponsibilityIds: Array.from(new Set([...removed, responsibilityId])),
@@ -829,12 +1167,31 @@ export function useAppState() {
         });
       }
 
+      const pendingSyncEntries = pendingSync
+        ? [
+            ...current.pendingSyncEntries,
+            createPendingSyncEntry(activityMessage, "task_update", {
+              action: "update_responsibility",
+              responsibilityId,
+              zoneId: existing.zoneId,
+              updates: sanitizedUpdates,
+            }),
+          ]
+        : current.pendingSyncEntries;
+
       return {
         ...current,
         zoneResponsibilities: nextResponsibilities,
         employees: nextEmployees,
+        activity: [activityEntry, ...current.activity].slice(0, 20),
+        pendingSyncEntries,
+        syncStatus: getSyncStatus(current.isOnline, pendingSyncEntries),
       };
     });
+
+    if (shouldScheduleOnlineReset) {
+      scheduleOnlineReset();
+    }
 
     const currentResponsibility = state.zoneResponsibilities.find(
       (responsibility) => responsibility.id === responsibilityId
@@ -843,13 +1200,13 @@ export function useAppState() {
     if (currentResponsibility) {
       void postZoneSystemMessage({
         zoneId: currentResponsibility.zoneId,
-        text: `Responsibility updated: ${updates.title ?? currentResponsibility.title}.`,
+        text: `Responsibility updated: ${sanitizedUpdates.title ?? currentResponsibility.title}.`,
         createdBy: streamActor,
         attachments: [
           {
             type: "responsibility",
             responsibilityId,
-            ...updates,
+            ...sanitizedUpdates,
           },
         ],
       });
@@ -857,6 +1214,9 @@ export function useAppState() {
   }
 
   function assignResponsibility(responsibilityId: string, employeeId?: string) {
+    if (state.userRole !== "admin") {
+      return;
+    }
     updateResponsibility(responsibilityId, { assignedPersonId: employeeId });
   }
 
@@ -885,66 +1245,12 @@ export function useAppState() {
     });
   }
 
-  function getDashboardLayout(userId: UserRole) {
-    return getLayoutForUser(state.dashboardLayouts, userId);
-  }
-
-  function saveDashboardLayout(userId: UserRole, widgets: DashboardWidgetLayout[]) {
-    setState((current) => ({
-      ...current,
-      dashboardLayouts: upsertDashboardLayout(current.dashboardLayouts, userId, () => widgets),
-    }));
-  }
-
-  function moveDashboardWidget(userId: UserRole, widgetId: DashboardWidgetId, targetOrder: number) {
-    setState((current) => ({
-      ...current,
-      dashboardLayouts: upsertDashboardLayout(current.dashboardLayouts, userId, (widgets) => {
-        const ordered = [...widgets].sort((left, right) => left.order - right.order);
-        const fromIndex = ordered.findIndex((widget) => widget.widgetId === widgetId);
-        if (fromIndex < 0) {
-          return ordered;
-        }
-
-        const [moved] = ordered.splice(fromIndex, 1);
-        if (!moved) {
-          return ordered;
-        }
-
-        const clamped = Math.max(0, Math.min(targetOrder, ordered.length));
-        ordered.splice(clamped, 0, moved);
-
-        return ordered.map((widget, order) => ({ ...widget, order }));
-      }),
-    }));
-  }
-
-  function setDashboardWidgetVisibility(userId: UserRole, widgetId: DashboardWidgetId, visible: boolean) {
-    setState((current) => ({
-      ...current,
-      dashboardLayouts: upsertDashboardLayout(current.dashboardLayouts, userId, (widgets) =>
-        widgets.map((widget) => (widget.widgetId === widgetId ? { ...widget, visible } : widget))
-      ),
-    }));
-  }
-
-  function updateDashboardWidgetPosition(
-    userId: UserRole,
-    widgetId: DashboardWidgetId,
-    position: Pick<DashboardWidgetLayout, "x" | "y" | "w" | "h">
-  ) {
-    setState((current) => ({
-      ...current,
-      dashboardLayouts: upsertDashboardLayout(current.dashboardLayouts, userId, (widgets) =>
-        widgets.map((widget) => (widget.widgetId === widgetId ? { ...widget, ...position } : widget))
-      ),
-    }));
-  }
-
   function createSubzone(input: Omit<Subzone, "id">) {
+    const next = { ...input, id: crypto.randomUUID() };
     setState((current) => ({
       ...current,
-      subzones: [...current.subzones, { ...input, id: crypto.randomUUID() }],
+      subzones: [...current.subzones, next],
+      mapActivity: [createMapActivity(`Subzone created: ${next.name}.`), ...current.mapActivity].slice(0, 50),
     }));
   }
 
@@ -954,10 +1260,12 @@ export function useAppState() {
       subzones: current.subzones.map((subzone) =>
         subzone.id === id ? { ...subzone, ...updates } : subzone
       ),
+      mapActivity: [createMapActivity(`Subzone updated.`), ...current.mapActivity].slice(0, 50),
     }));
   }
 
   function deleteSubzone(id: string) {
+    const subzoneName = state.subzones.find((entry) => entry.id === id)?.name ?? "Subzone";
     setState((current) => ({
       ...current,
       subzones: current.subzones.filter((subzone) => subzone.id !== id),
@@ -967,10 +1275,12 @@ export function useAppState() {
       blockPlacements: current.blockPlacements.map((placement) =>
         placement.subzoneId === id ? { ...placement, subzoneId: null } : placement
       ),
+      mapActivity: [createMapActivity(`Subzone deleted: ${subzoneName}.`), ...current.mapActivity].slice(0, 50),
     }));
   }
 
   function placeItemInZone(input: ItemPlacement) {
+    const itemName = state.inventory.find((entry) => entry.id === input.itemId)?.name ?? "Item";
     setState((current) => ({
       ...current,
       itemPlacements: [
@@ -979,6 +1289,7 @@ export function useAppState() {
         ),
         input,
       ],
+      mapActivity: [createMapActivity(`${itemName} moved inside map.`), ...current.mapActivity].slice(0, 50),
     }));
   }
 
@@ -1098,6 +1409,7 @@ export function useAppState() {
         ),
         input,
       ],
+      mapActivity: [createMapActivity(`Map item placement updated.`), ...current.mapActivity].slice(0, 50),
     }));
   }
 
@@ -1120,33 +1432,14 @@ export function useAppState() {
   }
 
   function setOnlineStatus(nextOnline: boolean) {
-    setState((current) => {
-      if (nextOnline && !current.isOnline && current.pendingSyncEntries.length > 0) {
-        return {
-          ...current,
-          isOnline: true,
-          syncStatus: "synced",
-          pendingSyncEntries: [],
-          activity: [
-            createActivity("Pending offline changes synced successfully.", false, "sync"),
-            ...current.activity,
-          ].slice(0, 20),
-        };
-      }
-
-      return {
-        ...current,
-        isOnline: nextOnline,
-        syncStatus: nextOnline
-          ? "online"
-          : current.pendingSyncEntries.length > 0
-            ? "pending-sync"
-            : "offline",
-      };
-    });
+    setState((current) => ({
+      ...current,
+      isOnline: nextOnline,
+      syncStatus: getSyncStatus(nextOnline, current.pendingSyncEntries),
+    }));
 
     if (nextOnline) {
-      scheduleOnlineReset();
+      scheduleOnlineReset(0);
     }
   }
 
@@ -1167,7 +1460,7 @@ export function useAppState() {
     appendAdminAssistantMessage(buildAdminResponse(trimmed));
   }
 
-  function sendMessage(text: string) {
+  async function sendMessage(text: string) {
     const trimmed = text.trim();
 
     if (!trimmed) {
@@ -1185,6 +1478,20 @@ export function useAppState() {
     const activitySnapshot = state.activity;
     const zonesSnapshot = state.zones;
     const parsed = parseInventoryCommand(trimmed, inventorySnapshot, zonesSnapshot);
+
+    if (parsed.type === "unknown" && isGeminiAvailable()) {
+      const geminiResponse = await buildGeminiAssistantResponse({
+        message: trimmed,
+        inventory: inventorySnapshot,
+        zones: zonesSnapshot,
+        activity: activitySnapshot,
+      });
+
+      if (geminiResponse) {
+        appendAssistantMessage(geminiResponse);
+        return;
+      }
+    }
 
     if (parsed.type === "list-low") {
       appendAssistantMessage(buildLowStockResponse(inventorySnapshot));
@@ -1272,13 +1579,18 @@ export function useAppState() {
     }
 
     appendAssistantMessage(
-      "I can help with low-stock checks, reorders, summaries, item locations, zone lookups, and moves like “Move oat milk to Cold Storage.”"
+      isGeminiAvailable()
+        ? "I can help with stock analysis, summaries, item locations, and map moves. Try asking naturally, for example: “What risks should I handle before lunch rush?”"
+        : "I can help with low-stock checks, reorders, summaries, item locations, zone lookups, and moves like “Move oat milk to Cold Storage.”"
     );
   }
 
   return {
     ...state,
     metrics,
+    procurementRecommendations,
+    dailyOpsReport,
+    activityInsightsReport,
     addItem,
     editItem,
     deleteItem,
@@ -1295,11 +1607,7 @@ export function useAppState() {
     updateResponsibility,
     assignResponsibility,
     listResponsibilities,
-    getDashboardLayout,
-    saveDashboardLayout,
-    moveDashboardWidget,
-    setDashboardWidgetVisibility,
-    updateDashboardWidgetPosition,
+
     createSubzone,
     updateSubzone,
     deleteSubzone,

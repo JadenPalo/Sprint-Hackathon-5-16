@@ -2,11 +2,8 @@ import { SectionTitle } from "../components/common/SectionTitle";
 import { ChatComposer } from "../components/chat/ChatComposer";
 import { ChatMessageBubble } from "../components/chat/ChatMessageBubble";
 import { SuggestedPrompts } from "../components/chat/SuggestedPrompts";
-import type { AppStore } from "../hooks/useAppState";
+import { useStore } from "../context/StoreContext";
 
-interface AdminAssistantPageProps {
-  store: AppStore;
-}
 
 const adminQuickPrompts = [
   "What should we promote this week?",
@@ -14,7 +11,8 @@ const adminQuickPrompts = [
   "When are our busiest times?",
 ];
 
-export function AdminAssistantPage({ store }: AdminAssistantPageProps) {
+export function AdminAssistantPage() {
+  const store = useStore();
   return (
     <div className="space-y-6">
       <SectionTitle

@@ -1,14 +1,11 @@
 import { demoPrompts } from "../data/demoPrompts";
-import type { AppStore } from "../hooks/useAppState";
+import { useStore } from "../context/StoreContext";
 import { getStreamConfig, hasUsableStreamConfig } from "../lib/stream";
 import { ChatWindow } from "../components/chat/ChatWindow";
 import { SectionTitle } from "../components/common/SectionTitle";
 
-interface AssistantPageProps {
-  store: AppStore;
-}
-
-export function AssistantPage({ store }: AssistantPageProps) {
+export function AssistantPage() {
+  const store = useStore();
   const streamConfig = getStreamConfig();
   const streamReady = hasUsableStreamConfig(streamConfig);
 
@@ -29,18 +26,19 @@ export function AssistantPage({ store }: AssistantPageProps) {
 
         <div className="space-y-4">
           <div className="card-surface p-5">
-            <h3 className="text-lg font-semibold text-slate-900">GetStream track relevance</h3>
+            <h3 className="text-lg font-semibold text-slate-900">Gemini provider status</h3>
             <p className="mt-2 text-sm text-slate-600">
-              This assistant is structured as a GetStream-ready chat experience, so you can plug in Stream credentials when available and keep the same UX layer.
+              The assistant is optimized for Gemini reasoning while keeping deterministic inventory commands for safe updates.
             </p>
             <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
               <p>
-                <span className="font-semibold">SDK status:</span>{" "}
-                {streamReady ? "Configured for live integration." : "Using local demo mode."}
+                <span className="font-semibold">Provider mode:</span>{" "}
+                {import.meta.env.VITE_AI_PROVIDER?.toLowerCase() === "gemini"
+                  ? "Gemini enabled"
+                  : "Fallback parser mode"}
               </p>
               <p className="mt-2">
-                Add <code>VITE_STREAM_API_KEY</code> in frontend env and configure backend token signing with
-                <code> STREAM_API_KEY</code> + <code>STREAM_API_SECRET</code>.
+                Set <code>VITE_AI_PROVIDER=gemini</code> and <code>VITE_GEMINI_API_KEY</code> in frontend env.
               </p>
             </div>
           </div>

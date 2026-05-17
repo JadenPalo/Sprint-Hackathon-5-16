@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import { useState } from "react";
 import { SectionTitle } from "../components/common/SectionTitle";
-import type { AppStore } from "../hooks/useAppState";
+import { useStore } from "../context/StoreContext";
 import {
   buildPeakHourData,
   buildSeasonalInsight,
@@ -19,11 +19,8 @@ import {
   buildWeeklySalesData,
 } from "../lib/analytics";
 
-interface AdminDashboardPageProps {
-  store: AppStore;
-}
-
-export function AdminDashboardPage({ store }: AdminDashboardPageProps) {
+export function AdminDashboardPage() {
+  const store = useStore();
   const [employeeName, setEmployeeName] = useState("");
   const [employeeRole, setEmployeeRole] = useState("Team Member");
   const lowRatio =
@@ -34,6 +31,10 @@ export function AdminDashboardPage({ store }: AdminDashboardPageProps) {
   const topItems = buildTopItems(store.inventory);
   const seasonal = buildSeasonalInsight(store.inventory);
   const employeeStats = store.getEmployeeStats();
+
+  const topReorders = store.procurementRecommendations.slice(0, 5);
+  const ops = store.dailyOpsReport;
+  const insights = store.activityInsightsReport;
 
   return (
     <div className="space-y-6">
@@ -59,6 +60,80 @@ export function AdminDashboardPage({ store }: AdminDashboardPageProps) {
         <div className="card-surface p-5">
           <p className="text-sm text-slate-500">Not on payroll</p>
           <p className="mt-2 text-2xl font-semibold text-amber-700">{employeeStats.offPayroll}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="card-surface p-5">
+          <h3 className="text-base font-semibold text-slate-900">Daily Ops Intelligence Report</h3>
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+            <div className="rounded-xl bg-slate-100 px-3 py-2">
+              <p className="text-slate-500">Orders processed</p>
+              <p className="font-semibold text-slate-900">{ops.overview.totalOrdersProcessed}</p>
+            </div>
+            <div className="rounded-xl bg-slate-100 px-3 py-2">
+              <p className="text-slate-500">Inventory consumed (24h)</p>
+              <p className="font-semibold text-slate-900">{ops.overview.totalInventoryConsumed}</p>
+            </div>
+            <div className="rounded-xl bg-slate-100 px-3 py-2">
+              <p className="text-slate-500">Fastest growth</p>
+              <p className="font-semibold text-slate-900">{ops.overview.fastestGrowingItem}</p>
+            </div>
+            <div className="rounded-xl bg-slate-100 px-3 py-2">
+              <p className="text-slate-500">Slowest moving</p>
+              <p className="font-semibold text-slate-900">{ops.overview.slowestMovingItem}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3 text-xs text-slate-700">
+            <div>
+              <p className="font-semibold uppercase tracking-[0.12em] text-slate-500">Key anomalies</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                {ops.anomalies.slice(0, 3).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold uppercase tracking-[0.12em] text-slate-500">Operational risks</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                {ops.operationalRisks.slice(0, 3).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold uppercase tracking-[0.12em] text-slate-500">Action items</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                {ops.actionItems.slice(0, 3).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div className="card-surface p-5">
+          <h3 className="text-base font-semibold text-slate-900">AI Reorder Forecast</h3>
+          <p className="mt-1 text-xs text-slate-500">Predictive recommendations (48h velocity + weekly baseline)</p>
+          <div className="mt-3 space-y-2 text-xs">
+            {topReorders.length === 0 ? (
+              <p className="text-slate-500">Not enough telemetry yet to forecast reorders.</p>
+            ) : (
+              topReorders.map((entry) => (
+                <div key={entry.itemId} className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700">
+                  <p className="font-semibold text-slate-900">{entry.itemName}</p>
+                  <p>
+                    Runout ~{entry.daysUntilStockout}d ({entry.expectedStockoutWindow}) • Confidence{" "}
+                    <span className="font-semibold uppercase">{entry.confidence}</span>
+                  </p>
+                  <p>
+                    Suggested reorder: <span className="font-semibold">{entry.suggestedReorderQuantity}</span>
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
@@ -120,6 +195,32 @@ export function AdminDashboardPage({ store }: AdminDashboardPageProps) {
               <span className="font-semibold">Note:</span> {seasonal.note}
             </li>
           </ul>
+        </div>
+      </div>
+
+      <div className="card-surface p-5">
+        <h3 className="text-base font-semibold text-slate-900">Admin-only employee activity insights</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          For operational optimization and workload balancing only — not punitive surveillance.
+        </p>
+        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+          <div className="rounded-xl bg-slate-100 px-3 py-2">
+            <p className="text-slate-500">Team average completed tasks</p>
+            <p className="font-semibold text-slate-900">{insights.teamAverageCompleted}</p>
+          </div>
+          <div className="rounded-xl bg-slate-100 px-3 py-2">
+            <p className="text-slate-500">Top performer</p>
+            <p className="font-semibold text-slate-900">{insights.topPerformer}</p>
+          </div>
+        </div>
+        <div className="mt-3 space-y-2">
+          {insights.insights.slice(0, 5).map((entry) => (
+            <div key={entry.employeeId} className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-700">
+              <p className="font-semibold text-slate-900">{entry.employeeName}</p>
+              <p>Completion delta vs team avg: {entry.completionRateDeltaPct}%</p>
+              <p>Idle-gap signal: {entry.idleGapSignal}</p>
+            </div>
+          ))}
         </div>
       </div>
 

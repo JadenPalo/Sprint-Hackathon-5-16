@@ -16,7 +16,7 @@ export function ChatWindow({ messages, prompts, onSend }: ChatWindowProps) {
         <div>
           <h3 className="text-xl font-semibold text-slate-900">Operations assistant</h3>
           <p className="mt-1 text-sm text-slate-600">
-            Friendly inventory help powered by a GetStream-ready chat experience.
+            Friendly inventory help powered by Gemini with deterministic inventory actions.
           </p>
         </div>
         <div className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-semibold text-cyan-700">

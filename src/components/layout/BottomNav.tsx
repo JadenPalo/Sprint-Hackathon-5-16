@@ -18,9 +18,9 @@ interface BottomNavProps {
 const items: Array<{ id: PageId; label: string; emoji: string; adminOnly?: boolean; staffOnly?: boolean }> = [
   { id: "dashboard", label: "Dashboard", emoji: "📊" },
   { id: "inventory", label: "Inventory", emoji: "📦" },
-  { id: "assistant", label: "Assistant", emoji: "💬" },
   { id: "map", label: "Map", emoji: "🗺️" },
-  { id: "responsibilities", label: "My Tasks", emoji: "📋", staffOnly: true },
+  { id: "responsibilities", label: "My Tasks", emoji: "📋" },
+  { id: "assistant", label: "Assistant", emoji: "💬" },
   { id: "admin-dashboard", label: "Admin", emoji: "📈", adminOnly: true },
   { id: "admin-assistant", label: "AI Ops", emoji: "🧠", adminOnly: true },
 ];
@@ -32,7 +32,7 @@ export function BottomNav({ currentPage, userRole, onNavigate }: BottomNavProps)
     }
 
     if (item.staffOnly) {
-      return userRole !== "admin";
+      return userRole === "staff";
     }
 
     return true;
