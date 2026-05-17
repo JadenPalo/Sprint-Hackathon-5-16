@@ -1,24 +1,29 @@
 import { formatTimestamp } from "../../lib/dates";
 import { getItemStatus } from "../../lib/inventory";
-import type { InventoryItem } from "../../types/inventory";
+import type { InventoryItem, Zone } from "../../types/inventory";
 import { ItemStatusBadge } from "./ItemStatusBadge";
 
 interface InventoryCardProps {
   item: InventoryItem;
+  zones: Zone[];
   onIncrease: (id: string) => void;
   onDecrease: (id: string) => void;
   onEdit: (item: InventoryItem) => void;
   onDelete: (id: string) => void;
+  onAssignZone: (id: string, zoneId: string | null) => void;
 }
 
 export function InventoryCard({
   item,
+  zones,
   onIncrease,
   onDecrease,
   onEdit,
   onDelete,
+  onAssignZone,
 }: InventoryCardProps) {
   const status = getItemStatus(item);
+  const zoneName = item.zoneId ? zones.find((zone) => zone.id === item.zoneId)?.name : null;
 
   return (
     <div className="card-surface p-5">
@@ -28,11 +33,15 @@ export function InventoryCard({
             {item.category}
           </p>
           <h3 className="mt-1 text-lg font-semibold text-slate-900">{item.name}</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            Updated {formatTimestamp(item.updatedAt)}
-          </p>
+          <p className="mt-1 text-sm text-slate-500">Updated {formatTimestamp(item.updatedAt)}</p>
         </div>
         <ItemStatusBadge status={status} />
+      </div>
+
+      <div className="mt-3">
+        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+          {zoneName ? `Zone: ${zoneName}` : "Zone: Unassigned"}
+        </span>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-4">
@@ -49,6 +58,24 @@ export function InventoryCard({
           </p>
         </div>
       </div>
+
+      <label className="mt-4 block">
+        <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+          Location
+        </span>
+        <select
+          value={item.zoneId ?? ""}
+          onChange={(event) => onAssignZone(item.id, event.target.value || null)}
+          className="soft-ring w-full rounded-2xl border-0 bg-slate-50 px-4 py-3 text-sm outline-none"
+        >
+          <option value="">Unassigned</option>
+          {zones.map((zone) => (
+            <option key={zone.id} value={zone.id}>
+              {zone.name}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div className="mt-4 flex gap-2">
         <button

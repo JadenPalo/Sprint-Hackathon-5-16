@@ -69,6 +69,7 @@ export function InventoryPage({ store }: InventoryPageProps) {
 
       <InventoryList
         items={filteredItems}
+        zones={store.zones}
         onIncrease={(id) => store.adjustItemQuantity(id, 1)}
         onDecrease={(id) => store.adjustItemQuantity(id, -1)}
         onEdit={(item) => {
@@ -76,6 +77,7 @@ export function InventoryPage({ store }: InventoryPageProps) {
           setModalOpen(true);
         }}
         onDelete={(id) => store.deleteItem(id)}
+        onAssignZone={(id, zoneId) => store.assignItemToZone(id, zoneId)}
       />
 
       <ItemFormModal

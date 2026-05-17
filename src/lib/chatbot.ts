@@ -1,7 +1,7 @@
 import { isToday } from "./dates";
 import { getItemStatus, getStatusLabel } from "./inventory";
 import { pluralize } from "./format";
-import type { ActivityEntry, InventoryItem } from "../types/inventory";
+import type { ActivityEntry, InventoryItem, Zone } from "../types/inventory";
 
 export function buildLowStockResponse(items: InventoryItem[]): string {
   const flagged = items.filter((item) => getItemStatus(item) !== "healthy");
@@ -59,4 +59,35 @@ export function buildSummaryResponse(activity: ActivityEntry[]): string {
 
   const recent = todaysEntries.slice(0, 4).map((entry) => entry.message);
   return `Here’s the latest from today: ${recent.join(" • ")}.`;
+}
+
+export function buildItemLocationResponse(item: InventoryItem, zone: Zone | null): string {
+  if (!zone) {
+    return `${item.name} is currently unassigned to a zone.`;
+  }
+
+  return `${item.name} is located in ${zone.name}.`;
+}
+
+export function buildItemsInZoneResponse(zone: Zone, items: InventoryItem[]): string {
+  if (items.length === 0) {
+    return `${zone.name} currently has no assigned items.`;
+  }
+
+  const listed = items.map((item) => `${item.name} (${item.quantity} ${item.unit})`);
+  return `${zone.name} has ${items.length} item${items.length === 1 ? "" : "s"}: ${listed.join(", ")}.`;
+}
+
+export function buildInventoryByZoneSummary(zones: Zone[], items: InventoryItem[]): string {
+  if (zones.length === 0) {
+    return "No zones are configured yet. Create zones in Map Builder to get a zone summary.";
+  }
+
+  const zoneLines = zones.map((zone) => {
+    const zoneItems = items.filter((item) => item.zoneId === zone.id);
+    return `${zone.name}: ${zoneItems.length} item${zoneItems.length === 1 ? "" : "s"}`;
+  });
+
+  const unassignedCount = items.filter((item) => !item.zoneId).length;
+  return `Inventory by zone — ${zoneLines.join(" • ")} • Unassigned: ${unassignedCount} item${unassignedCount === 1 ? "" : "s"}.`;
 }

@@ -11,6 +11,13 @@ export const defaultWelcomeMessage: ChatMessage = {
   timestamp: new Date().toISOString(),
 };
 
+export const defaultAdminWelcomeMessage: ChatMessage = {
+  id: "admin-assistant-welcome",
+  role: "assistant",
+  text: "Hi manager — I can help with promotion ideas, stock priorities, and busiest-hour staffing suggestions.",
+  timestamp: new Date().toISOString(),
+};
+
 export const defaultActivity: ActivityEntry[] = [
   {
     id: "activity-seed",

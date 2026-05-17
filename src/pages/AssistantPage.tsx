@@ -39,7 +39,8 @@ export function AssistantPage({ store }: AssistantPageProps) {
                 {streamReady ? "Configured for live integration." : "Using local demo mode."}
               </p>
               <p className="mt-2">
-                Add your Stream API key, user ID, and user token in <code>.env</code> to connect the UI to the real chat SDK.
+                Add <code>VITE_STREAM_API_KEY</code> in frontend env and configure backend token signing with
+                <code> STREAM_API_KEY</code> + <code>STREAM_API_SECRET</code>.
               </p>
             </div>
           </div>

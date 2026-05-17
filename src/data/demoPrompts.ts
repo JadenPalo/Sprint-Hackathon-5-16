@@ -4,4 +4,7 @@ export const demoPrompts = [
   "We used 50 large cups",
   "What should I reorder today?",
   "Summarize today's changes",
+  "Where is oat milk?",
+  "What’s in Cold Storage?",
+  "Summarize inventory by zone",
 ];
