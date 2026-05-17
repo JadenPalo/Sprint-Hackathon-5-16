@@ -20,8 +20,8 @@ export interface ZoneMessageInput {
   attachments?: Array<Record<string, unknown>>;
 }
 
-const apiKey = process.env.STREAM_API_KEY ?? "";
-const apiSecret = process.env.STREAM_API_SECRET ?? "";
+const apiKey = process.env.STREAM_API_KEY ?? "78m9fxacyzvc";
+const apiSecret = process.env.STREAM_API_SECRET ?? "9qbhtdm9pu2vf8ymjj9frdjx5752r3y4kqv86xtutb2zdfg8v8p5jsu5mm32t58k";
 
 if (!apiKey || !apiSecret) {
   // Keep runtime error explicit and server-side only.
