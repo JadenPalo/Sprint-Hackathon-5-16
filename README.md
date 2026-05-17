@@ -1,8 +1,6 @@
 # LocalOps AI
 
-Offline-first inventory dashboard and chatbot assistant for small local businesses, especially cafes and restaurants.
-
-Built as an 8-hour hackathon MVP for the GetStream track.
+Offline-first inventory dashboard and chatbot assistant for small local businesses, especially logistic heavy businesses like retail or cafes. 
 
 ## What it does
 
