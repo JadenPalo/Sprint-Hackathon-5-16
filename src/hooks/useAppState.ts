@@ -261,11 +261,12 @@ export function useAppState() {
       } else if (firebaseEnabled && firebaseServices) {
         const nonce = crypto.randomUUID();
         firebaseWriteNonceRef.current = nonce;
+        const { userRole: _userRole, ...syncedState } = persistedState;
 
         void setDoc(
           doc(firebaseServices.db, "configs", "app-state"),
           {
-            ...persistedState,
+            ...syncedState,
             __meta: {
               nonce,
               updatedAt: new Date().toISOString(),
@@ -317,7 +318,6 @@ export function useAppState() {
         isOnline: payload.isOnline ?? current.isOnline,
         syncStatus: payload.syncStatus ?? current.syncStatus,
         zones: payload.zones ?? current.zones,
-        userRole: payload.userRole ?? current.userRole,
         employees: payload.employees ?? current.employees,
         zoneResponsibilities: payload.zoneResponsibilities ?? current.zoneResponsibilities,
         subzones: payload.subzones ?? current.subzones,
